@@ -1,0 +1,40 @@
+# One-shot helper: the files were uploaded as base64 text (the upload tool only takes text).
+# This job decodes them, checks their SHA-256, commits the preview media, removes the staging
+# folder and publishes release v1.0 with the skin zip attached.
+name: assemble-release
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/assemble.yml']
+permissions:
+  contents: write
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode uploaded files
+        run: |
+          set -euo pipefail
+          for base in $(ls _upload/*.b64.part* | sed 's/\.part[0-9]*$//' | sort -u); do
+            name=$(basename "$base" .b64); dest="${name//__//}"
+            mkdir -p "$(dirname "$dest")"
+            cat $(ls "$base".part* | sort) | base64 -d > "$dest"
+          done
+          sha256sum -c _upload/SHA256SUMS
+      - name: Commit previews and remove staging
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -r -q _upload
+          git add previews
+          git commit -m "Add preview media (GIF, MP4, stills)"
+          git push
+      - name: Publish release v1.0
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v1.0 release/starship-wampy-all-v9.zip \
+            --title "Starship tower-catch cassette v1.0" --notes-file .github/release-notes.md --target main
